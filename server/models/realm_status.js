@@ -1,16 +1,18 @@
 'use strict';
 
+let DATABASE_FILE = process.env.ELYSIUM_DATABASE_FILE;
+if(!DATABASE_FILE) throw new Error("ELYSIUM_DATABASE_FILE variable not set!");
+
+var flatfile = require('flat-file-db');
+var db = flatfile.sync(DATABASE_FILE);
+
 let Sequelize = require('sequelize');
 let _ = Sequelize.Utils._;
 
 function logErrors(results) {
+  //skips insertion errors and continues with loading
   console.log("*****************************************");
-  _.forEach(results, function(value, key) {
-   console.log("key: ",key,"\tvalue: ",value);
-  });
-  console.log("Message: ",results.message());
-  console.log("Value: ",results.value());
-  console.log("SQL: ",results.sql);
+  console.error(results.message);
   console.log("*****************************************");
 }
 
@@ -56,9 +58,10 @@ module.exports = {
       }],
       validate: {
         totalPopulation: function() {
-          let recordString = JSON.stringify(this);
+          let record = this;
           if(this.horde + this.alliance > 100) {
-            throw new Error("Total faction ratio cannot exceed 100%. ("+recordString+")");
+            let message = "Total faction ratio cannot exceed 100%. Attempted to insert:\n"+record.dump();
+            throw new Error(message);
           }
         }
       }
@@ -66,16 +69,19 @@ module.exports = {
 
     return database.sync({force: true})
       .then(function() {
-        //TODO: Load data from database file into MySQL via Sequelize
-        /****************/
-        let NOW = new Date(2017, 5, 3).getTime();
-        let data = [
-          {name: "Andorhol", population: 1234, horde: 51, alliance: 50, timestamp: NOW},
-          {name: "Zeth'kur", population: 700, horde: 45, alliance: 55, timestamp: NOW},
-          {name: "Elysium", population: 9000, horde: 55, alliance: 45, timestamp: NOW},
-          {name: "Darrowshire", population: 1200, horde: 50, alliance: 50, timestamp: NOW},
-          {name: "New Realm", population: 1200, horde: 50, alliance: 50, timestamp: NOW}
-        ];
+        let keys = db.keys();
+        let data = [];
+        _.each(keys, function(key) {
+          let entry = db.get(key);
+          let ana = entry.Anathema || {};
+          let dar = entry.Darrowshire || {};
+          let ely = entry.Elysium || {};
+          let zet = entry.ZethKur || {};
+          data.push({name: "Anathema"   , population: ana.population || 0, horde: ana.horde || 0, alliance: ana.alliance || 0, timestamp: Number(key)});
+          data.push({name: "Darrowshire", population: dar.population || 0, horde: dar.horde || 0, alliance: dar.alliance || 0, timestamp: Number(key)});
+          data.push({name: "Elysium"    , population: ely.population || 0, horde: ely.horde || 0, alliance: ely.alliance || 0, timestamp: Number(key)});
+          data.push({name: "Zeth'Kur"   , population: zet.population || 0, horde: zet.horde || 0, alliance: zet.alliance || 0, timestamp: Number(key)});
+        });
         return Sequelize.Promise.map(data, function(entry) {
           return RealmStatus.findOrCreate({
             where: {
